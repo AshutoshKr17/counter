@@ -132,3 +132,8 @@ This app answers that question in the most Apple-like way possible.
 ---
 
 *If this helped you track your expenses better, give it a ⭐ on GitHub!*
+
+
+screenshots :
+
+<img width="283" height="537" alt="Screenshot 2025-08-31 at 5 11 56 AM" src="https://github.com/user-attachments/assets/a12b858b-43d4-41d9-9847-de4e2a092bda" />
