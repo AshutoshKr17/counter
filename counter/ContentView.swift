@@ -40,16 +40,19 @@ extension Color {
 struct ContentView: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var totalExpenses: Double = 0.0
+    @State private var expenseHistory: [Double] = []
     @State private var sliderAmount: Double = 0.0
     @State private var textAmount: String = ""
     @State private var useSlider: Bool = true
     @State private var monthlyBudget: Double = 10000.0
     @State private var budgetAmount: String = ""
     @State private var showBudgetSetting: Bool = false
+    @State private var showResetConfirmation: Bool = false
     
     private let defaults = UserDefaults.standard
     private let expensesKey = "saved_expenses"
     private let budgetKey = "monthly_budget"
+    private let historyKey = "expense_history"
 
     var body: some View {
         ZStack {
@@ -60,13 +63,14 @@ struct ContentView: View {
                 budgetSection
                 totalExpensesSection
                 inputSection
-                resetButton
+                undoButton
             }
             .padding(.vertical)
         }
         .onAppear {
             loadExpenses()
             loadBudget()
+            loadHistory()
         }
         .onTapGesture {
             hideKeyboard()
@@ -360,22 +364,24 @@ struct ContentView: View {
         (useSlider && sliderAmount <= 0) || (!useSlider && textAmount.isEmpty)
     }
     
-    private var resetButton: some View {
-        Button(action: resetExpenses) {
+    private var undoButton: some View {
+        Button(action: undoLastExpense) {
             HStack(spacing: 8) {
-                Image(systemName: "arrow.clockwise")
+                Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 14, weight: .medium))
                 
-                Text("Reset")
+                Text("Undo")
                     .font(.subheadline)
                     .fontWeight(.medium)
             }
-            .foregroundColor(.red)
+            .foregroundColor(expenseHistory.isEmpty ? .secondary : .blue)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
-            .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
+            .background((expenseHistory.isEmpty ? Color.secondary : Color.blue).opacity(0.1), in: RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
+        .disabled(expenseHistory.isEmpty)
+        .opacity(expenseHistory.isEmpty ? 0.5 : 1.0)
     }
     
 
@@ -439,6 +445,7 @@ struct ContentView: View {
             VStack(spacing: 32) {
                 budgetSettingsHeader
                 budgetSettingsCard
+                resetMonthSection
                 Spacer()
             }
             .padding(24)
@@ -452,6 +459,14 @@ struct ContentView: View {
                     .fontWeight(.medium)
                 }
             }
+        }
+        .alert("Reset Month?", isPresented: $showResetConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Reset", role: .destructive) {
+                resetExpenses()
+            }
+        } message: {
+            Text("This will reset the month and all expenses you've tracked. Are you sure you want to do this?")
         }
     }
     
@@ -500,27 +515,32 @@ struct ContentView: View {
     private var budgetInputField: some View {
         HStack(spacing: 8) {
             Text("₹")
-                .font(.title2)
-                .fontWeight(.medium)
+                .font(.title)
+                .fontWeight(.semibold)
                 .foregroundColor(.secondary)
             
             TextField("Enter amount", text: $budgetAmount)
                 .keyboardType(.numberPad)
-                .font(.title2)
+                .font(.title)
                 .fontWeight(.semibold)
                 .foregroundColor(.primary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
-                .frame(maxWidth: 160)
+                .frame(maxWidth: 200)
+                .onChange(of: budgetAmount) { newValue in
+                    budgetAmount = formatNumberInput(newValue)
+                }
         }
     }
     
     private var updateBudgetButton: some View {
         Button("Update Budget") {
             withAnimation(.easeInOut(duration: 0.3)) {
-                if let newBudget = Double(budgetAmount), newBudget > 0 {
+                // Remove commas before converting to double
+                let cleanAmount = budgetAmount.replacingOccurrences(of: ",", with: "")
+                if let newBudget = Double(cleanAmount), newBudget > 0 {
                     monthlyBudget = newBudget
                     saveBudget()
                     showBudgetSetting = false
@@ -538,7 +558,48 @@ struct ContentView: View {
     }
     
     private var isUpdateButtonDisabled: Bool {
-        budgetAmount.isEmpty || Double(budgetAmount) == nil || Double(budgetAmount)! <= 0
+        let cleanAmount = budgetAmount.replacingOccurrences(of: ",", with: "")
+        return budgetAmount.isEmpty || Double(cleanAmount) == nil || Double(cleanAmount)! <= 0
+    }
+    
+    private var resetMonthSection: some View {
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Reset Month")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    
+                    Text("Clear all tracked expenses")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+            }
+            
+            Button(action: {
+                showResetConfirmation = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 14, weight: .medium))
+                    
+                    Text("Reset Month")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.red, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(20)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.04), radius: 8, x: 0, y: 2)
     }
     
     // MARK: - Functions
@@ -555,15 +616,29 @@ struct ContentView: View {
         
         if amountToAdd > 0 {
             totalExpenses += amountToAdd
+            expenseHistory.append(amountToAdd)
             saveExpenses()
+            saveHistory()
         }
+    }
+    
+    private func undoLastExpense() {
+        guard let lastExpense = expenseHistory.last else { return }
+        
+        totalExpenses -= lastExpense
+        expenseHistory.removeLast()
+        
+        saveExpenses()
+        saveHistory()
     }
     
     private func resetExpenses() {
         totalExpenses = 0.0
+        expenseHistory.removeAll()
         sliderAmount = 0.0
         textAmount = ""
         saveExpenses()
+        saveHistory()
     }
     
     private func saveExpenses() {
@@ -572,6 +647,14 @@ struct ContentView: View {
     
     private func loadExpenses() {
         totalExpenses = defaults.double(forKey: expensesKey)
+    }
+    
+    private func saveHistory() {
+        defaults.set(expenseHistory, forKey: historyKey)
+    }
+    
+    private func loadHistory() {
+        expenseHistory = defaults.array(forKey: historyKey) as? [Double] ?? []
     }
     
     private func saveBudget() {
@@ -587,6 +670,24 @@ struct ContentView: View {
     
     private func hideKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    
+    private func formatNumberInput(_ input: String) -> String {
+        // Remove all non-digit characters
+        let digitsOnly = input.filter { $0.isNumber }
+        
+        // If empty, return empty
+        guard !digitsOnly.isEmpty else { return "" }
+        
+        // Convert to number and format with commas
+        if let number = Double(digitsOnly) {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.maximumFractionDigits = 0
+            return formatter.string(from: NSNumber(value: number)) ?? digitsOnly
+        }
+        
+        return digitsOnly
     }
 }
 
