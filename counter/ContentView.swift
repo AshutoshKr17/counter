@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import WidgetKit
 
 // Color interpolation extension for smooth transitions
 extension Color {
@@ -50,6 +51,7 @@ struct ContentView: View {
     @State private var showResetConfirmation: Bool = false
     
     private let defaults = UserDefaults.standard
+    private let sharedDefaults = UserDefaults(suiteName: "group.com.yourcompany.counter.shared")
     private let expensesKey = "saved_expenses"
     private let budgetKey = "monthly_budget"
     private let historyKey = "expense_history"
@@ -71,6 +73,13 @@ struct ContentView: View {
             loadExpenses()
             loadBudget()
             loadHistory()
+            
+            // Sync current data to widget on app start
+            saveExpenses()
+            saveBudget()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("OpenAddExpense"))) { _ in
+            useSlider = true
         }
         .onTapGesture {
             hideKeyboard()
@@ -643,6 +652,13 @@ struct ContentView: View {
     
     private func saveExpenses() {
         defaults.set(totalExpenses, forKey: expensesKey)
+        
+        // Also save to shared defaults for widget
+        sharedDefaults?.set(totalExpenses, forKey: "widget_total_expenses")
+        sharedDefaults?.synchronize()
+        
+        // Force widget refresh
+        WidgetCenter.shared.reloadAllTimelines()
     }
     
     private func loadExpenses() {
@@ -659,6 +675,13 @@ struct ContentView: View {
     
     private func saveBudget() {
         defaults.set(monthlyBudget, forKey: budgetKey)
+        
+        // Also save to shared defaults for widget
+        sharedDefaults?.set(monthlyBudget, forKey: "widget_monthly_budget")
+        sharedDefaults?.synchronize()
+        
+        // Force widget refresh
+        WidgetCenter.shared.reloadAllTimelines()
     }
     
     private func loadBudget() {
@@ -689,6 +712,8 @@ struct ContentView: View {
         
         return digitsOnly
     }
+    
+
 }
 
 #Preview {
